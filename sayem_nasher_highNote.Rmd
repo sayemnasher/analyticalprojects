@@ -1,0 +1,512 @@
+---
+title: '**High Note Analysis**'
+author: "Sayem Nasher"
+date: "2022-09-22"
+output:
+  html_document:
+    df_print: paged
+---
+<center>
+
+![](/Users/sayemnasher/Desktop/logo.png)
+</center>
+## The following analysis will evaluate neural net, logistic regression, and decision tree models, to predict top 1000 users likely to switch from freemium to premium.
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+#libraries
+library("tidyverse")
+library("skimr")
+library("readxl") # used to read excel files
+library("dplyr") # used for data munging 
+library("FNN") # used for knn regression (knn.reg function)
+library("caret") # used for various predictive models
+library("class") # for using confusion matrix function
+library("rpart.plot") # used to plot decision tree
+library("rpart")  # used for Regression tree
+library("glmnet") # used for Lasso and Ridge regression
+library('NeuralNetTools') # used to plot Neural Networks
+library("PRROC") # top plot ROC curve
+library("ROCR") # top plot lift curve
+library("abind")
+library("DMwR2")
+```
+
+```{r message=FALSE,  warning=FALSE}
+#Loading high note dataset
+setwd("/Users/sayemnasher/Desktop/module 2/data mining in r")
+high_note_data <- read_csv("HN_data_PostModule.csv", col_types = "fnfnnnnnnnnnnnfnnnnnnnnnnff")
+
+#Replacing NA factors with UNK
+high_note_data  <- high_note_data %>%
+  mutate(net_user = as.character(net_user)) %>%
+  mutate(net_user = as.factor(recode(net_user, "NA" = "UNK")) )%>%
+  mutate(male = as.character(male)) %>%
+  mutate(male = as.factor(recode(male, "NA" = "UNK"))) %>%
+  mutate(adopter = as.character(adopter)) %>%
+  mutate(adopter = as.factor(recode(adopter, "NA" = "UNK"))) %>%
+  mutate(good_country = as.character(good_country)) %>%
+  mutate(good_country = as.factor(recode(good_country, "NA" = "UNK"))) %>%
+  mutate(delta1_good_country = as.character(delta1_good_country)) %>%
+  mutate(delta1_good_country = as.factor(recode(delta1_good_country, "NA" = "UNK")))
+
+#process data (changing na number data to mean/median)
+high_note_data <- high_note_data %>%
+    group_by(male) %>%
+  mutate(age = ifelse(is.na(age), mean(age, na.rm = TRUE), age)) %>%
+  mutate(friend_cnt = ifelse(is.na(friend_cnt), median(friend_cnt, na.rm = TRUE), friend_cnt)) %>%
+  mutate(avg_friend_age = ifelse(is.na(avg_friend_age), mean(avg_friend_age, na.rm = TRUE), avg_friend_age)) %>%
+  mutate(avg_friend_male = ifelse(is.na(avg_friend_male), mean(avg_friend_male, na.rm = TRUE), avg_friend_male)) %>%
+  mutate(friend_country_cnt = ifelse(is.na(friend_country_cnt), median(friend_country_cnt, na.rm = TRUE), friend_country_cnt)) %>%
+  mutate(subscriber_friend_cnt = ifelse(is.na(subscriber_friend_cnt), median(subscriber_friend_cnt, na.rm = TRUE), subscriber_friend_cnt)) %>%
+  mutate(songsListened = ifelse(is.na(songsListened), median(songsListened, na.rm = TRUE), songsListened)) %>%
+  mutate(lovedTracks = ifelse(is.na(lovedTracks), median(lovedTracks, na.rm = TRUE), lovedTracks)) %>%
+  mutate(posts = ifelse(is.na(posts), median(posts, na.rm = TRUE), posts)) %>%
+  mutate(playlists = ifelse(is.na(playlists), median(playlists, na.rm = TRUE), playlists)) %>%
+  mutate(shouts = ifelse(is.na(shouts), median(shouts, na.rm = TRUE), shouts)) %>%
+  mutate(tenure = ifelse(is.na(tenure), mean(tenure, na.rm = TRUE), tenure)) %>%
+  
+  mutate(delta1_friend_cnt = ifelse(is.na(delta1_friend_cnt), median(delta1_friend_cnt, na.rm = TRUE), delta1_friend_cnt)) %>%
+  mutate(delta1_avg_friend_age = ifelse(is.na(delta1_avg_friend_age), mean(delta1_avg_friend_age, na.rm = TRUE), delta1_avg_friend_age)) %>%
+  mutate(delta1_avg_friend_male = ifelse(is.na(delta1_avg_friend_male), mean(delta1_avg_friend_male, na.rm = TRUE), delta1_avg_friend_male)) %>%
+  mutate(delta1_friend_country_cnt = ifelse(is.na(delta1_friend_country_cnt), median(delta1_friend_country_cnt, na.rm = TRUE), delta1_friend_country_cnt)) %>%
+  mutate(delta1_subscriber_friend_cnt = ifelse(is.na(delta1_subscriber_friend_cnt), median(delta1_subscriber_friend_cnt, na.rm = TRUE), delta1_subscriber_friend_cnt)) %>%
+  mutate(delta1_songsListened = ifelse(is.na(delta1_songsListened), median(delta1_songsListened, na.rm = TRUE), delta1_songsListened)) %>%
+  mutate(delta1_lovedTracks = ifelse(is.na(delta1_lovedTracks), median(delta1_lovedTracks, na.rm = TRUE), delta1_lovedTracks)) %>%
+  mutate(delta1_posts = ifelse(is.na(delta1_posts), median(delta1_posts, na.rm = TRUE), delta1_posts)) %>%
+  mutate(delta1_playlists = ifelse(is.na(delta1_playlists), median(delta1_playlists, na.rm = TRUE), delta1_playlists)) %>%
+  mutate(delta1_shouts = ifelse(is.na(delta1_shouts), median(delta1_shouts, na.rm = TRUE), delta1_shouts)) %>%
+
+  ungroup()
+
+#log transforming
+high_note_data$friend_cnt<-log(high_note_data$friend_cnt+1)
+high_note_data$playlists<-log(high_note_data$playlists+1)
+high_note_data$posts<-log(high_note_data$posts+1)
+high_note_data$songsListened<-log(high_note_data$songsListened+1)
+```
+
+``` {r}
+#normalize data for models 
+
+normalize<-function(vec){
+  if (is.numeric(vec)) {
+    vec = (vec - min(vec)) / (max(vec) - min(vec)) }
+  return (vec)
+}
+   
+high_note_data <- as.data.frame(lapply(high_note_data, normalize))
+
+```
+
+```{r}
+skim(high_note_data)
+```
+
+```{r}
+#create data frames
+high_note_data_past <- high_note_data[,c('net_user', 'age',  'male', 'tenure',   'delta1_friend_cnt','delta1_avg_friend_age',    'delta1_avg_friend_male','delta1_friend_country_cnt', 'delta1_subscriber_friend_cnt', 'delta1_songsListened', 'delta1_lovedTracks',   'delta1_posts', 'delta1_playlists', 'delta1_shouts', 'delta1_good_country','adopter')]
+
+high_note_data_past_y = high_note_data %>% pull("adopter")
+high_note_data_y = high_note_data %>% pull("adopter")
+
+high_note_data_past_x = high_note_data_past %>% select(-c("adopter"))
+high_note_data_x = high_note_data %>% select(-c("adopter"))
+
+HN_data_past_X_id<-high_note_data_past_x %>% select(c("net_user"))
+HN_data_X_id<-high_note_data_x %>% select(c("net_user"))
+
+
+high_note_data_past_x<-high_note_data_past_x %>% select(-c("net_user"))
+high_note_data_x<-high_note_data_x %>% select(-c("net_user"))
+```
+
+```{r}
+#split the data
+smp_size <- floor(.75 *nrow(high_note_data_past_x))
+
+set.seed(12345)
+train_ind <- sample(seq_len(nrow(high_note_data_past_x)), size = smp_size)
+
+#create test and training for x
+hn_data_train_past_x <- high_note_data_past_x[train_ind, ]
+hn_data_train_x <- high_note_data_x [train_ind, ]
+
+hn_data_test_past_x <- high_note_data_past_x[-train_ind, ]
+hn_data_test_x <- high_note_data_x[-train_ind, ]
+
+hn_data_train_past_y <- high_note_data_past_y[train_ind]
+hn_data_train_y <- high_note_data_y[train_ind]
+
+hn_data_test_past_y <- high_note_data_past_y[-train_ind]
+hn_data_test_y <- high_note_data_y[-train_ind]
+```
+
+
+```{r}
+#additional libraries required
+install.packages("https://cran.r-project.org/src/contrib/Archive/DMwR/DMwR_0.4.1.tar.gz", repos=NULL, type = "source")
+library(DMwR)
+```
+
+```{r}
+#full training set x and y 
+set.seed(1234)
+
+hn_data_train_past <- cbind(hn_data_train_past_x, hn_data_train_past_y)
+hn_data_train <- cbind(hn_data_train_x, hn_data_train_y)
+
+#SMOTE (assigning equal probabilities for 0 and 1)
+balanced_hn_train_past <- SMOTE(hn_data_train_past_y ~ ., data.frame(hn_data_train_past), perc.over = 100, perc.under = 200)
+balanced_hn_train <- SMOTE(hn_data_train_y ~., data.frame(hn_data_train), perc.over = 100, perc.under = 200)
+```
+
+```{r}
+#remove y column and store it
+hn_data_train_past_x <- balanced_hn_train_past %>% select(-hn_data_train_past_y)
+hn_data_train_x <- balanced_hn_train %>% select(-hn_data_train_y)
+
+hn_data_train_past_y <- balanced_hn_train_past %>% pull(hn_data_train_past_y) %>% as.factor()
+hn_data_train_y <- balanced_hn_train %>% pull (hn_data_train_y) %>% as.factor()
+```
+
+```{r}
+#creating a data frame for cost benefit analysis
+
+clf_results <- data.frame(matrix(ncol = 5, nrow = 0))
+names(clf_results) <- c("Model", "Accuracy", "Precision", "Recall", "F1")
+
+#store TP,TN,FP,FN
+cost_benefit_df <- data.frame(matrix(ncol = 5, nrow = 0))
+names(cost_benefit_df) <- c("Model", "TP", "FN", "FP", "TN")
+```
+
+```{r}
+#LOGISTIC REGRESSION PAST DATA ONLY
+yyy_fit <- train(hn_data_train_past_x,
+                 hn_data_train_past_y, 
+                 method = "glm",
+                 family = "binomial",
+                 preProc = c("center", "scale"))
+
+##predict on test
+yyy_predict <- predict(yyy_fit, newdata = hn_data_test_past_x, positive="1" )
+glm_prob <- predict(yyy_fit, newdata = hn_data_test_past_x, type = "prob")
+
+
+
+## Add into clf_results dataframe
+x1 <- confusionMatrix(yyy_predict, hn_data_test_past_y )[["overall"]]
+y1 <- confusionMatrix(yyy_predict, hn_data_test_past_y)[["byClass"]]
+
+clf_results[nrow(clf_results) + 1,] <-  list(Model = "Log Regression Past", 
+                                             Accuracy = round (x1[["Accuracy"]],3), 
+                                            Precision = round (y1[["Precision"]],3), 
+                                            Recall = round (y1[["Recall"]],3), 
+                                            F1 = round (y1[["F1"]],3))
+
+## Add into cost_benefit_df dataframe 
+a1 <- confusionMatrix(yyy_predict, hn_data_test_past_y)
+
+cost_benefit_df[nrow(cost_benefit_df) + 1,] <-  list(Model = "Log Regression Past", 
+                                             TP = a1[["table"]][4], 
+                                             FN = a1[["table"]][3], 
+                                             FP = a1[["table"]][2], 
+                                             TN = a1[["table"]][1])
+print(yyy_fit)
+```
+```{r}
+#running log reg on all data
+yyy_fit_2 <- train(hn_data_train_x,
+                 hn_data_train_y, 
+                 method = "glm",
+                 family = "binomial",
+                 preProc = c("center", "scale"))
+
+##predict test data
+yyy_predict_2 <- predict(yyy_fit_2, newdata = hn_data_test_x, positive="1" )
+glm_prob_2 <- predict(yyy_fit_2, newdata = hn_data_test_x, type = "prob")
+
+## Add results into clf_results dataframe
+xa <- confusionMatrix(yyy_predict_2, hn_data_test_y )[["overall"]]
+ya <- confusionMatrix(yyy_predict_2, hn_data_test_y)[["byClass"]]
+
+clf_results[nrow(clf_results) + 1,] <-  list(Model = "Log Regression all", 
+                                             Accuracy = round (xa[["Accuracy"]],3), 
+                                            Precision = round (ya[["Precision"]],3), 
+                                            Recall = round (ya[["Recall"]],3), 
+                                            F1 = round (ya[["F1"]],3))
+
+## Add results into cost_benefit_df dataframe 
+aa <- confusionMatrix(yyy_predict_2, hn_data_test_y )
+
+cost_benefit_df[nrow(cost_benefit_df) + 1,] <-  list(Model = "Log Regression all", 
+                                             TP = aa[["table"]][4], 
+                                             FN = aa[["table"]][3], 
+                                             FP = aa[["table"]][2], 
+                                             TN = aa[["table"]][1])
+print(yyy_fit_2)
+```
+
+```{r}
+#Neural Net boost for past data
+my.grid <- expand.grid(.decay = c(0.5, 0.1), .size = c(5, 7))
+
+nn_clf_fit <- train(hn_data_train_past_x, 
+                    hn_data_train_past_y,
+                    method = "nnet",
+                    trace = F,
+                    tuneGrid = my.grid,
+                    linout = 0,
+                    stepmax = 100,
+                    threshold = 0.01 )
+
+## Plot Neural Network 
+plotnet(nn_clf_fit$finalModel, y_names = "adopter")
+```
+```{R}
+print(nn_clf_fit)
+```
+
+
+```{r}
+#predict neural net on test data
+nn_clf_predict <- predict(nn_clf_fit,hn_data_test_past_x, positive = "1")
+
+NN_prob <- predict(nn_clf_fit, newdata = hn_data_test_past_x, type = "prob")
+
+
+
+## Add into clf_results dataframe
+x4 <- confusionMatrix(nn_clf_predict,hn_data_test_past_y)[["overall"]]
+y4 <- confusionMatrix(nn_clf_predict,hn_data_test_past_y)[["byClass"]]
+
+clf_results[nrow(clf_results) + 1,] <-  list(Model = "Neural Network Past", 
+                                             Accuracy = round (x4[["Accuracy"]],3), 
+                                            Precision = round (y4[["Precision"]],3), 
+                                            Recall = round (y4[["Recall"]],3), 
+                                            F1 = round (y4[["F1"]],3))
+
+## Add results into cost_benefit_df dataframe 
+a4 <- confusionMatrix(nn_clf_predict,hn_data_test_past_y)
+
+cost_benefit_df[nrow(cost_benefit_df) + 1,] <-  list(Model = "Neural Network Past", 
+                                             TP = a4[["table"]][4], 
+                                             FN = a4[["table"]][3], 
+                                             FP = a4[["table"]][2], 
+                                             TN = a4[["table"]][1])
+```
+
+```{r}
+#neural net for all data
+my.grid <- expand.grid(.decay = c(0.5, 0.1), .size = c(5, 7))
+
+nn_clf_fit_2 <- train(hn_data_train_x, 
+                    hn_data_train_y,
+                    method = "nnet",
+                    trace = F,
+                    tuneGrid = my.grid,
+                    linout = 0,
+                    stepmax = 100,
+                    threshold = 0.01 )
+print(nn_clf_fit_2)
+plotnet(nn_clf_fit_2$finalModel, y_names = "adopter")
+```
+
+
+
+
+```{r}
+#predit NN all on test data
+nn_clf_predict_2 <- predict(nn_clf_fit_2,hn_data_test_x, positive = "1")
+
+NN_prob_2 <- predict(nn_clf_fit_2, newdata = hn_data_test_x, type = "prob")
+
+
+## Add results into clf_results dataframe
+xd <- confusionMatrix(nn_clf_predict_2,hn_data_test_y)[["overall"]]
+yd <- confusionMatrix(nn_clf_predict_2,hn_data_test_y)[["byClass"]]
+
+clf_results[nrow(clf_results) + 1,] <-  list(Model = "Neural Network All", 
+                                             Accuracy = round (xd[["Accuracy"]],3), 
+                                            Precision = round (yd[["Precision"]],3), 
+                                            Recall = round (yd[["Recall"]],3), 
+                                            F1 = round (yd[["F1"]],3))
+
+## Add results into cost_benefit_df dataframe 
+ad <- confusionMatrix(nn_clf_predict_2,hn_data_test_y)
+
+cost_benefit_df[nrow(cost_benefit_df) + 1,] <-  list(Model = "Neural Network All", 
+                                             TP = ad[["table"]][4], 
+                                             FN = ad[["table"]][3], 
+                                             FP = ad[["table"]][2], 
+                                             TN = ad[["table"]][1])
+```
+
+```{r}
+#decison tree on past data
+cross_validation <- trainControl(## 10-fold CV
+                                method = "repeatedcv",
+                                number = 10,
+                                ## repeated three times
+                                repeats = 3)
+
+Param_Grid <-  expand.grid(maxdepth = 4)
+
+dtree_fit <- train(hn_data_train_past_x,
+                   hn_data_train_past_y, 
+                   method = "rpart2",
+                   # split - criteria to split nodes
+                   parms = list(split = "gini"),
+                  tuneGrid = Param_Grid,
+                   trControl = cross_validation,
+                  # preProc -  perform listed pre-processing to predictor dataframe
+                   preProc = c("center", "scale"))
+
+
+## Predict on test data
+dtree_predict <- predict(dtree_fit, newdata = hn_data_test_past_x)
+
+dtree_prob <- predict(dtree_fit, newdata = hn_data_test_past_x, type = "prob")
+
+
+## Add results into clf_results dataframe
+x6 <- confusionMatrix(dtree_predict,  hn_data_test_past_y )[["overall"]]
+y6 <- confusionMatrix(dtree_predict,  hn_data_test_past_y )[["byClass"]]
+
+clf_results[nrow(clf_results) + 1,] <-  list(Model = "Decision Tree Past", 
+                                             Accuracy = round (x6[["Accuracy"]],3), 
+                                            Precision = round (y6[["Precision"]],3), 
+                                            Recall = round (y6[["Recall"]],3), 
+                                            F1 = round (y6[["F1"]],3))
+
+a6 <- confusionMatrix(dtree_predict,  hn_data_test_past_y )
+
+cost_benefit_df[nrow(cost_benefit_df) + 1,] <-  list(Model = "Decision Tree Past", 
+                                             TP = a6[["table"]][4], 
+                                             FN = a6[["table"]][3], 
+                                             FP = a6[["table"]][2], 
+                                             TN = a6[["table"]][1])
+print(dtree_fit)
+```
+
+```{r}
+#using decision tree on all data
+cross_validation <- trainControl(## 10-fold CV
+                                method = "repeatedcv",
+                                number = 10,
+                                ## repeated three times
+                                repeats = 3)
+
+Param_Grid <-  expand.grid(maxdepth = 4)
+
+dtree_fit_2 <- train(hn_data_train_x,
+                   hn_data_train_y, 
+                   method = "rpart2",
+                   # split - criteria to split nodes
+                   parms = list(split = "gini"),
+                  tuneGrid = Param_Grid,
+                   trControl = cross_validation,
+                  # preProc -  perform listed pre-processing to predictor dataframe
+                   preProc = c("center", "scale"))
+
+
+
+
+## Predict on test data
+dtree_predict_2 <- predict(dtree_fit_2, newdata = hn_data_test_x)
+dtree_prob_2 <- predict(dtree_fit_2, newdata = hn_data_test_x, type = "prob")
+
+
+
+## Add results into clf_results dataframe
+xg <- confusionMatrix(dtree_predict_2,  hn_data_test_y )[["overall"]]
+yg <- confusionMatrix(dtree_predict_2,  hn_data_test_y )[["byClass"]]
+
+clf_results[nrow(clf_results) + 1,] <-  list(Model = "Decision Tree All", 
+                                             Accuracy = round (xg[["Accuracy"]],3), 
+                                            Precision = round (yg[["Precision"]],3), 
+                                            Recall = round (yg[["Recall"]],3), 
+                                            F1 = round (yg[["F1"]],3))
+ag <- confusionMatrix(dtree_predict_2,  hn_data_test_y  )
+
+cost_benefit_df[nrow(cost_benefit_df) + 1,] <-  list(Model = "Decision Tree All", 
+                                             TP = ag[["table"]][4], 
+                                             FN = ag[["table"]][3], 
+                                             FP = ag[["table"]][2], 
+                                             TN = ag[["table"]][1])
+print(dtree_fit_2)
+```
+
+```{r}
+#summary
+print(cost_benefit_df)
+```
+
+```{r}
+#summary
+print(clf_results)
+```
+```{r}
+ggplot(clf_results[1:6,] %>% arrange(desc(Accuracy)) %>%
+       mutate(Model=factor(Model, levels=Model) ), 
+       aes(x = Model, y = Accuracy)) +
+  geom_bar(stat = "identity" , width=0.3, fill="steelblue") + 
+  coord_cartesian(ylim = c(0.2, 1)) +
+  geom_hline(aes(yintercept = mean(Accuracy)),
+             colour = "green",linetype="dashed") +
+  ggtitle("Compare Accuracy for all Models") +
+  theme(plot.title = element_text(color="black", size=10, hjust = 0.5),axis.text.x=element_text(angle=90,hjust=1,vjust=0.5))
+```
+
+```{r}
+#compare f1 scores
+ggplot(clf_results[1:6,] %>% arrange(desc(F1)) %>%
+       mutate(Model=factor(Model, levels=Model) ), 
+       aes(x = Model, y = F1)) +
+  geom_bar(stat = "identity" , width=0.3, fill="steelblue") + 
+  coord_cartesian(ylim = c(0.2, 1)) +
+  geom_hline(aes(yintercept = mean(F1)),
+             colour = "green",linetype="dashed") +
+  ggtitle("Compare F1 Score for all Models") +
+  theme(plot.title = element_text(color="black", size=10, hjust = 0.5),
+        axis.text.x=element_text(angle=90,hjust=1,vjust=0.5))
+```
+
+
+
+
+
+```{r}
+#After comparing accuracy, F1 scores, and AUC, Neural Net proves to be the best performing model. Now I will go back to the data, filter out free users and deploy the model.
+```
+
+
+```{r}
+#filter out free users
+HN_data_free_users<-high_note_data%>% filter(adopter==0)
+HN_data_free_users_test<-HN_data_free_users %>% select(-c("net_user","adopter"))
+HN_data_free_users_id<-HN_data_free_users %>% select(c("net_user"))
+```
+
+```{r}
+predict_adopting_probability<- predict(nn_clf_fit_2, newdata = HN_data_free_users_test, type = "prob")
+probability_of_adopting<-predict_adopting_probability[,2]
+
+#adding id to the table
+adopters_list<-cbind(HN_data_free_users_id, probability_of_adopting)
+summary(adopters_list)
+```
+
+
+```{r}
+top_1000 <-head(adopters_list[order(-adopters_list$probability_of_adopting), ],1000)
+summary(top_1000)
+```
+
+
+
+
+```{r}
+print(top_1000)
+```
+

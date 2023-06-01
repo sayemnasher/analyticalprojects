@@ -1,0 +1,136 @@
+---
+title: '**Analysis of Gamblers at Small chain Casinos**'
+author: '**Sayem Nasher**'
+date: "2022-08-18"
+output:
+  html_document:
+    df_print: paged
+---
+```{r setup, include=FALSE} 
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+<center>
+
+![](/Users/sayemnasher/Desktop/logo.png)
+</center>
+
+```{r, include=FALSE}
+library(readr)
+library(readxl)
+library(knitr)
+library(ggplot2)
+library(gridExtra)
+library(here)
+library(scales)
+library(cowplot)
+library(car)
+library(formattable)
+library(janitor)
+library(tidyverse)
+library(lubridate)
+library(dplyr)
+library(tinytex)
+```
+
+```{r, include=FALSE}
+setwd("/Users/sayemnasher/Desktop/module 2/operation analytics")
+casino_data <- read_xlsx("Casino Final_Dec 2013 Raw Data_for test.xlsx", sheet = "Sheet1")
+casino_data <- as_tibble(casino_data)
+casino_data <- rename(casino_data, PlayerNum = "...1")
+casino_data <- rename(casino_data, Total_Spent = "Total Spend")
+```
+How much total dollars were played on each game?
+```{r}
+total_per_games <- data.frame(sapply(casino_data[2:8], sum))
+total_per_games$key <- rownames(total_per_games)
+total_per_games <- rename(total_per_games, SumGame = "sapply.casino_data.2.8...sum.")
+
+
+ggplot(data = total_per_games, aes(x=reorder(key, -SumGame), y = SumGame, fill=key)) + geom_bar(stat = "identity", color="Green") + 
+  scale_y_continuous(labels = comma) +
+  ggtitle("Total USD by Game") + theme(plot.title = element_text(hjust = 0.5, size=16, face ="bold")) + 
+  geom_text(aes(label = number(SumGame, big.mark = ",")), size=4, position = position_stack(vjust = 1.1)) + xlab("Games") + ylab ("Total USD")
+```
+oberservation - Some key takeaways are that clearly, slots, blackjack, and craps are highly profitable sources, and account for most of the revenue, thus should be incentivized to play. Bingo should be a clear concern for management, as the revenue is low and it takes up a lot of space in the casino floor. 
+
+## Breaking down numbers of players for each game, and how much dollars were spent
+
+```{r}
+casino_dataOther <- filter(casino_data, Other>0)
+hist_other <- ggplot(data = casino_dataOther, aes(casino_dataOther$Other)) + geom_histogram(binwidth = 50, color="Orange", aes(fill=..count..), alpha=.5, show.legend = TRUE) + 
+  labs(title="Other Games", x="Wager (USD)", y="Frequency") +
+  theme(plot.title = element_text(hjust = 0.5, size=12, face ="bold")) + xlim(c(0,900))
+
+casino_dataBac <- filter(casino_data, Bac>0)
+hist_bac <- ggplot(data = casino_dataBac, aes(casino_dataBac$Bac)) + geom_histogram(binwidth = 25, color="Purple", aes(fill=..count..), alpha=.5, show.legend = TRUE) + 
+  labs(title="Bac", x="Wager (USD)", y="Frequency") +
+  theme(plot.title = element_text(hjust = 0.5, size=12, face ="bold")) + xlim(c(0,1250)) + ylim(c(0,320))
+
+casino_dataPoker<- filter(casino_data, Poker>0)
+hist_poker <- ggplot(data = casino_dataPoker, aes(casino_dataPoker$Poker)) + geom_histogram(binwidth = 25, color="Darkblue", aes(fill=..count..), alpha=.5, show.legend = TRUE) + 
+  labs(title="Poker", x="Wager (USD)", y="Frequency") +
+  theme(plot.title = element_text(hjust = 0.5, size=12, face ="bold")) + xlim(c(0,750)) + ylim(c(0,180))
+
+casino_dataBingo <- filter(casino_data, Bingo>0)
+hist_bingo <- ggplot(data = casino_dataBingo, aes(casino_dataBingo$Bingo)) + geom_histogram(binwidth = 10, color="Black", aes(fill=..count..), alpha=.5, show.legend = TRUE) + 
+  labs(title="Bingo", x="Wager (USD)", y="Frequency") +
+  theme(plot.title = element_text(hjust = 0.5, size=12, face ="bold"))
+
+casino_dataSlots<- filter(casino_data, Slots>0)
+hist_slots <- ggplot(data = casino_dataSlots, aes(casino_dataSlots$Slots)) + geom_histogram(binwidth = 50, color="Green", aes(fill=..count..), alpha=.5, show.legend = TRUE) + 
+  labs(title="Slots", x="Wager (USD)", y="Frequency") +
+  theme(plot.title = element_text(hjust = 0.5, size=12, face ="bold")) + xlim(c(0,1500))
+
+casino_dataBJ<- filter(casino_data, BJ>0)
+hist_bj <- ggplot(data = casino_dataBJ, aes(casino_dataBJ$BJ)) + geom_histogram(binwidth = 25, color="Navy", aes(fill=..count..), alpha=.5, show.legend = TRUE) + 
+  labs(title="Blackjack", x="Wager (USD)", y="Frequency") +
+  theme(plot.title = element_text(hjust = 0.5, size=12, face ="bold")) + xlim(c(0,500))
+
+casino_dataCraps <- filter(casino_data, Craps>0)
+hist_craps <- ggplot(data = casino_dataCraps, aes(casino_dataCraps$Craps)) + geom_histogram(binwidth = 25, color="Pink", aes(fill=..count..), alpha=.5, show.legend = TRUE) + 
+  labs(title="Craps", x="Wager (USD)", y="Frequency") +
+  theme(plot.title = element_text(hjust = 0.5, size=12, face ="bold")) + xlim(c(0,600))
+
+plot_grid(hist_other, hist_bac, hist_poker, hist_bingo, hist_slots, hist_bj, hist_craps)
+```
+### **Inisights** - Some key takeaways for management would be that bingo resembles a normal distribution with wagers being around $100. Poker shows a high concentration of $200-$300 wagers. The "Other" cateogry shows high concentration of low wagers. Blackjack, slots, and craps shows a high concentration of casual betters with low wager amounts. 
+
+### **Creating a cluster analysis to analyze what games are likely to be played during the same visit**
+
+```{r}
+games_casino <- casino_data[2:8]
+games_casino_z <- as.data.frame(lapply(games_casino, scale))
+set.seed(1)
+casino_clusters3 <- kmeans(games_casino_z, 3, iter.max = 1000, nstart = 10)
+casino_clusters4 <- kmeans(games_casino_z, 4, iter.max = 1000, nstart = 10)
+casino_clusters5 <- kmeans(games_casino_z, 5, iter.max = 1000, nstart = 10)
+casino_clusters6 <- kmeans(games_casino_z, 6, iter.max = 1000, nstart = 10)
+wcss <- vector()
+for (i in 1:10) wcss[i] <- sum(kmeans(games_casino_z, i, iter.max = 1000, nstart = 10)$withinss)
+plot(1:10, wcss, type = "b", main = paste("Clusters of games"), xlab = "Number of clusters", ylab = "WCSS")
+```
+
+### Cluster Centers
+```{r}
+kable(data.frame("Cluster" = c(4:1),"Centers" = round(casino_clusters4$centers,2), "Size" = casino_clusters4$size))
+```
+
+### Pairing Clusters with total spent
+
+```{r}
+casino_data$Cluster <- casino_clusters4$cluster
+kable(aggregate(data = casino_data, Total_Spent ~ Cluster, FUN = function(format.mean){round(mean(format.mean),0)}), align = c('l','l', 'l'))
+```
+
+### Scatterplot
+```{r}
+scatterplotMatrix(~ Slots + BJ + Craps + Bac + Bingo + Poker + Other, data = casino_data, lty.smooth=2, main="Scatterplot Matrix for Pairs of Games")
+```
+
+### Matrix Correlation
+```{r}
+round(cor(casino_data[c("Slots", "BJ", "Craps", "Bac", "Bingo", "Poker", "Other")]),2)
+```
+
+### observation - The cluster with the largest amount are the casual betters who wage low amounts. The bingo cluster players show that they primarily play bingo and dont part take in many other casino games. Those who play poker are likely to play slots, and "other". Which may signify to management to put these games near each other on the casino floor. Another cluster represents that players are likely to play craps, blackjack, bac, and slots together. This cluster of players contribute the most revenue. incentives should be focused on this cluster. 

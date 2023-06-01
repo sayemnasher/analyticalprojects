@@ -1,0 +1,373 @@
+---
+title: "**Modern AI Project**"
+author: "**Sayem Nasher**"
+date: "**4-12-2023**"
+output:
+  html_document:
+    df_print: paged
+---
+<center>
+
+![](/Users/sayemnasher/Desktop/logo.png)
+</center>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This problem aims at training neural networks to predict the existence of breast cancer (binary classification), using the *Wisconsin Breast Cancer Database* created by Dr. WIlliam H. Wolberg. More details about the dataset are available [here](https://rdrr.io/cran/mlbench/man/BreastCancer.html). 
+
+# Problem 1: Predicting Breast Cancer using Deep Neural Networks with R  
+
+## Data loading and preprocessing
+
+The Breast Cancer data set is included in the R package mlbench. We first install this package and also the keras package for deep learning.
+
+```{r}
+library(keras)
+library(mlbench)
+```
+
+```{r}
+# Require the data set and remove the incomplete samples.
+
+data("BreastCancer")
+BreastCancer <- as.matrix(BreastCancer[which(complete.cases(BreastCancer)==TRUE), ]) # drop the incomplete samples
+head(BreastCancer)
+```
+
+The data matrix ``BreastCancer`` has 683 rows and 11 columns, where each row represents a sample case, and each column represents a feature. The first column is the ID of the cases, which is useless and will be discarded in this problem. The 2nd to the 10th columns represent 9 different medical characteristics, with numerical values from 1 to 10. The last column indicates whether the tumor is benign or not. In our problem, we will use columns 2-10 as the predictors ``X`` and the last column as the label ``y`` (0 for benign and 1 for malignant).
+
+```{r}
+# Separate the predictors X and the label y.
+
+X <- BreastCancer[ ,2:10]
+y <- BreastCancer[ ,11] == "malignant"
+X <- apply(X, 2, as.numeric) # convert each column of X into numeric values
+head(X)
+head(y)
+```
+
+Now we are ready to do the train/test splitting. Randomly choose 70% of the samples (i.e., 683*0.7  ≈  478 samples) to be the training set and let the rest be the test set.
+
+```{r}
+
+set.seed(1234) 
+N <- dim(BreastCancer)[1]
+training_id <- sample(N, size=floor(0.7 * N), replace=F)
+X_train <- X[training_id, ]
+X_test <- X[-training_id, ]
+y_train <- y[training_id]
+y_test <- y[-training_id]
+
+```
+
+## Model training and testing
+
+Build a neural network with two fully connected layers (name it network). The first layer should have 32 hidden units and a relu activation. The second layer should have only one unit, and the activation function should be the sigmoid function, since we are dealing with a binary classification problem.
+
+```{r}
+tensorflow::set_random_seed(1234)   # Set a random seed for reproducability 
+
+network <- keras_model_sequential() %>%
+  layer_dense(units = 32, activation = "relu", input_shape = c(9)) %>%
+  layer_dense(units = 1, activation = "sigmoid")
+
+```
+
+Next, compile the network with a proper optimizer and a proper loss function. Also, set metrics = "accuracy" to record the training accuracy in each epoch.
+
+```{r}
+
+network %>% compile(
+  optimizer = "rmsprop",
+  loss = "binary_crossentropy",
+  metrics = c("accuracy")
+)
+
+
+```
+
+Fit the network on the training set with 20 epochs and batch size 32. Remember to store the outputs into a variable history for visualizing the training process.
+
+```{r}
+
+history <- network %>% fit(
+  X_train, y_train,
+  epochs = 20, batch_size = 32)
+
+```
+
+Plot history to see the training process. Report the loss and the accuracy on the training set in the final epoch, which can be displayed by the command print(history).
+
+```{r}
+
+plot(history)
+print(history)
+
+```
+
+Finally, report the loss and the accuracy of your network on the test set.
+
+```{r}
+
+test_metrics <- network %>% evaluate(X_test, y_test)
+cat("Test loss:", test_metrics[[1]], "\nTest accuracy:", test_metrics[[2]], "\n")
+
+```
+
+Generate predictions on new data using the predict() function and create a table to compare the predicted labels with the true labels using the table() function in R. (See the MNIST example if you forget how to do it.)
+
+```{r}
+
+probs <- network %>% predict(X_test)
+predictions <- ifelse(probs > 0.5, 1, 0)
+table(Predicted = predictions, True = y_test)
+
+```
+
+## Try different network structures
+
+Now, based on the `network` you just built, build three different networks as follows.
+
+
+*  `network_deeper`: Add another dense layer between the two layers of `network`. The newly-added layer should contain 16 hidden units and a `relu` activation.
+*   `network_regularized`: Add an $\ell_2$ regularizer to the first layer of `network`, with regularization parameter `0.01`.
+*   `network_dropout`: Add a dropout layer between the first layer and the last layer of `network`, with the drop rate `0.5`.
+
+
+Train these networks using the same compile step and the same fit step as `network`. Report their accuracies on the test set. 
+
+```{r}
+
+tensorflow::set_random_seed(1234)
+
+# network_deeper
+network_deeper <- keras_model_sequential() %>%
+  layer_dense(units = 32, activation = "relu", input_shape = c(9)) %>%
+  layer_dense(units = 16, activation = "relu") %>%
+  layer_dense(units = 1, activation = "sigmoid")
+
+network_deeper %>% compile(
+  optimizer = "rmsprop",
+  loss = "binary_crossentropy",
+  metrics = c("accuracy")
+)
+
+history_deeper <- network_deeper %>% fit(
+  X_train, y_train,
+  epochs = 20, batch_size = 32,
+  validation_data = list(X_test, y_test)
+)
+
+# network_regularized
+network_regularized <- keras_model_sequential() %>%
+  layer_dense(units = 32, activation = "relu", input_shape = c(9), kernel_regularizer = regularizer_l2(0.01)) %>%
+  layer_dense(units = 1, activation = "sigmoid")
+
+network_regularized %>% compile(
+  optimizer = "rmsprop",
+  loss = "binary_crossentropy",
+  metrics = c("accuracy")
+)
+
+history_regularized <- network_regularized %>% fit(
+  X_train, y_train,
+  epochs = 20, batch_size = 32,
+  validation_data = list(X_test, y_test)
+)
+
+# network_dropout
+network_dropout <- keras_model_sequential() %>%
+  layer_dense(units = 32, activation = "relu", input_shape = c(9)) %>%
+  layer_dropout(rate = 0.5) %>%
+  layer_dense(units = 1, activation = "sigmoid")
+
+network_dropout %>% compile(
+  optimizer = "rmsprop",
+  loss = "binary_crossentropy",
+  metrics = c("accuracy")
+)
+
+history_dropout <- network_dropout %>% fit(
+  X_train, y_train,
+  epochs = 20, batch_size = 32,
+  validation_data = list(X_test, y_test)
+)
+
+```
+
+##Based on the test accuracies, which one of the three networks perform the best? 
+
+```{r}
+
+#Evaluate the three networks on the test set:
+
+test_metrics_deeper <- network_deeper %>% evaluate(X_test, y_test)
+test_metrics_regularized <- network_regularized %>% evaluate(X_test, y_test)
+test_metrics_dropout <- network_dropout %>% evaluate(X_test, y_test)
+
+cat("Test accuracy (network_deeper):", test_metrics_deeper[[2]], "\n")
+cat("Test accuracy (network_regularized):", test_metrics_regularized[[2]], "\n")
+cat("Test accuracy (network_dropout):", test_metrics_dropout[[2]], "\n")
+
+# To identify the best network based on test accuracy
+best_network <- which.max(c(test_metrics_deeper[[2]], test_metrics_regularized[[2]], test_metrics_dropout[[2]]))
+network_names <- c("network_deeper", "network_regularized", "network_dropout")
+cat("Best network based on test accuracy:", network_names[best_network], "\n")
+
+```
+### Observations:
+After loading and pre-processing the dataset, I trained a simple neural network (network) with two fully connected layers. To improve upon the initial model, I created three different networks: network_deeper, network_regularized, and network_dropout. Each of these networks utilized the same compile and fit steps as the original network. Upon comparing their accuracies on the test set, I found that network_deeper, which featured an additional dense layer with 16 hidden units and a relu activation, outperformed the other models with an impressive accuracy of **.97**
+
+
+# Problem 2: Fashion_MNIST Classification using Convolutional Neural Networks in R
+
+In this problem, we will train a *convolutional neural network* (CNN) for clothing classification using the Fashion_MNIST dataset. Fashion_MNIST is a dataset of Zalando's article images—consisting of a training set of 60,000 examples and a test set of 10,000 examples. Each example is a 28x28 grayscale image, associated with a label from 10 classes of clothing, such as shoes, t-shirts, dresses, and so on. See [here](https://github.com/zalandoresearch/fashion-mnist) for more details.
+
+
+Load the Fashion_MNIST dataset, which is included in `keras`, and then construct the training and test sets.
+
+```{r}
+
+data <- dataset_fashion_mnist() 
+X_train <- data$train$x
+y_train <- data$train$y
+X_test <- data$test$x
+y_test <- data$test$y
+
+```
+
+The structure of X and y can be shown by the `str()` function in R.
+
+```{r}
+
+str(X_train)
+str(y_train)
+str(X_test)
+str(y_test)
+
+```
+
+Similar to the MNIST dataset, the images are encoded as 3D arrays, and the labels are a 1D array of categories, ranging from 0 to 9. The training images are stored in an array of 60,000 matrices of 28 × 28 integers. Each such matrix is a grayscale image, with values between 0 and 255. The first 36 images are visualized as follows.
+
+```{r}
+
+par(mfcol=c(6, 6))
+par(mar=c(0, 0, 3, 0), xaxs='i', yaxs='i') # set edges
+
+for (idx in 1:36) { 
+  im <- X_train[idx, , ]
+  plot(as.raster(im, max = 255)) # create a raster object (representing a bitmap image)
+}
+
+```
+
+First, preprocess the data through the following steps: 
+1.  Reshape the images into the shape that CNN expects. The shape of `X_train` and `X_test` should be (60000, 28, 28, 1) and (10000, 28, 28, 1), respectively. 
+2. Scale `X_train` and `X_test` so that their values are in the [0, 1] interval. 
+3. One-hot encode the labels `y_train` and `y_test`.
+
+```{r}
+# TODO
+
+#1. Reshaping the Images
+X_train <- array_reshape(X_train, c(60000, 28, 28, 1))
+X_test <- array_reshape(X_test, c(10000, 28, 28, 1))
+
+#2. Scale X_train and X_test
+X_train <- X_train / 255
+X_test <- X_test / 255
+
+#3. One-Hot Encoding
+y_train <- to_categorical(y_train)
+y_test <- to_categorical(y_test)
+```
+
+Now build a CNN model that sequentially includes:
+
+
+*   A 2D convolution layer with 16 filters of size 3$\times$3, zero padding, and `"relu"` activation;
+*   A maxpooling layer with size 2$\times$2;
+*   A flatten layer;
+*   A dense layer with 64 hidden units;
+*   Another dense layer with 10 units and `"softmax"` activation.
+
+
+```{r}
+model <- keras_model_sequential() %>% 
+
+  # The first 2D convolutional layer
+  layer_conv_2d(
+    filter = 16, 
+    kernel_size = c(3, 3),
+    input_shape = c(28, 28, 1), 
+    padding = "same", 
+    activation = "relu") %>%
+
+  # Add a max pooling layer following the convolutional layer
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+
+  # A flatten layer
+  layer_flatten() %>%
+
+  # Feed the vector into a densely connected layer with 64 hidden units
+  layer_dense(units = 64, activation = "relu") %>%
+
+  # The final layer with 10 outputs and a softmax activation
+  layer_dense(units = 10, activation = "softmax")
+
+  summary(model)
+  
+```
+
+Now compile the CNN you just built with a proper loss function, the `"rmsprop"` optimizer , and the `"acc"` metric.  
+
+```{r}
+
+model %>% compile(
+  loss = "categorical_crossentropy",
+  optimizer = optimizer_rmsprop(learning_rate = 1e-3),
+  metrics = c("acc")
+)
+
+```
+
+Fit the model on the training set with 10 epochs. Remember to record the output into a `history` variable.
+
+```{r}
+
+history <- model %>% fit(X_train, y_train, batch_size = 64, epochs = 10)
+
+```
+
+Plot the history and report the training accuracy in the final epoch.
+
+```{r}
+
+plot(history)
+print(history)
+
+```
+
+Evaluate the model on the test set. Report the test accuracy.
+
+```{r}
+
+model %>% evaluate(X_test, y_test)
+
+```
+
+Now make a table to see the model's performance on predicting each category.
+
+```{r}
+
+y_test_pred <- model %>% predict(X_test) %>% k_argmax()
+
+table(true = data$test$y, predicted = as.vector(y_test_pred))
+
+```
+
+## Summary
+
+I loaded the dataset as instructed in the provided .ipynb file and proceeded with train/test splitting. I preprocessed the data by reshaping the images to the required shape for the CNN, scaling X train and X test values to the [0, 1] interval, and one-hot encoding the labels y train and y test. I then built a CNN model with a specified architecture, compiled it using an appropriate loss function, the "rmsprop" optimizer, and the "acc" metric. After fitting the model on the training set for 10 epochs and recording the output in a history variable, I plotted the history and observed a training accuracy of .905 in the final epoch. Evaluating the model on the test set yielded a loss function value of .27, further highlighting the model's performance on predicting each category.

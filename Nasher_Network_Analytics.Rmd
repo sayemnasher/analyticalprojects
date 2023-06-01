@@ -1,0 +1,272 @@
+---
+title: '**Amazon Book Sales Cluster**'
+author: '**Sayem Nasher**'
+date: "**10-15-2022**"
+output:
+  html_document:
+    df_print: paged
+---
+<center>
+
+![](/Users/sayemnasher/Desktop/logo.png)
+</center>
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+#load libraries
+library(igraph)
+library(ggplot2)
+library(dplyr)
+```
+
+```{r}
+#load data
+setwd("~/Desktop/Network Analytics")
+network_data_subset <-read.table(file = "graph_subset_rank1000.txt")
+names(network_data_subset) <- c("from", "to")
+```
+
+```{r}
+#convert data
+network_data_subset <- 
+  graph_from_data_frame(network_data_subset, directed = FALSE, vertices = NULL)
+```
+
+
+```{r}
+#Plotting the network
+
+plot.igraph(
+  network_data_subset,
+  layout = layout.kamada.kawai,
+  vertex.color = 'blue',
+  vertex.label = NA,
+  vertex.size = 4,
+  edge.curved = .1,
+  asp = -1,
+  margin = -.03
+)
+title("Network Data Plot",
+  cex.main = .75,
+  col.main = "Black")
+```
+```{r}
+#commments - there seems to be a large gap in the bottom left quadrant of the network data plot. The network data plot also seems to be clustered towards the edges
+```
+
+
+```{r}
+#using subset to plot top 1000
+
+#Load data and convert
+network_data_subset_cc <-read.table(file = "graph_subset_rank1000_CC.txt")
+names(network_data_subset_cc) <- c("from", "to")
+
+network_data_subset_cc <-
+  graph_from_data_frame(network_data_subset_cc, directed = F, vertices = NULL)
+
+
+plot.igraph(
+  network_data_subset_cc,
+  layout = layout.kamada.kawai,
+  edge.width = 2,
+  vertex.color = V(network_data_subset_cc),
+  vertex.label = NA,
+  vertex.size = 3,
+  vertex.label.cex = .5,
+  edge.curved = .1,
+  asp = -1,
+  margin = -.03
+)
+title("Largest connected component Components of Top-Ranked Products",
+      cex.main = .75,
+      col.main = "Black")
+```
+
+```{r}
+#4 Data analysis
+net_all <- read.table(file = "graph_complete.txt")
+names(net_all) <- c("from", "to")
+
+data_all_from<-as.data.frame(net_all$from)
+data_all_to<-as.data.frame(net_all$to)
+
+# Calculate Out & In Degrees
+
+# convert data to grapnh object 
+net_all <-graph_from_data_frame(net_all, directed = TRUE, vertices = NULL)
+
+# Calculate out degree using degree command 
+net_all$degree.out <-
+  degree(
+    net_all,
+    mode = "out"
+  )
+
+# Calculate In degree using degree command 
+net_all$degree.in <-
+  degree(
+    net_all,
+    mode = "IN"
+  )
+```
+
+```{r}
+#Plot the out-degree distribution
+```
+
+```{r}
+# create data frame 
+net_outdeg<-as.data.frame(net_all$degree.out)
+
+net_outdeg<-cbind.data.frame(rownames(net_outdeg),net_outdeg)
+names(net_outdeg) <- c("from", "out degree")
+```
+
+```{r}
+mytheme <- theme_bw() +
+  theme(
+    text = element_text(family = "Times New Roman"),
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line = element_line(color = "grey"),
+    axis.text.x = element_text(size = 10, angle = 0),
+    axis.text.y = element_text(size = 10, angle = 0),
+    axis.title.y = element_text(size = 10),
+    axis.title.x = element_text(size = 10)
+  )
+
+# Plot distribution
+ggplot(net_outdeg, aes(x = net_outdeg$`out degree`)) +
+  geom_histogram(
+    stat = "bin" ,
+    binwidth = 1,
+    aes(fill = ..count..),
+    show.legend = FALSE
+  ) +
+  mytheme +
+  labs(title = "Out-Degree Distribution",
+       x = "Number of Similar Products",
+       y = "Number of Nodes") +
+  scale_fill_gradient(low = "grey", high = "black")
+```
+
+```{r}
+# convert out degree to data frame 
+net_indeg<-as.data.frame(net_all$degree.in)
+
+# add rownames (i.e. From) 
+net_indeg<-cbind.data.frame(rownames(net_indeg),net_indeg)
+names(net_indeg) <- c("from", "in degree")
+```
+
+```{r}
+
+ggplot(net_indeg, aes(x = net_indeg$`in degree`)) +
+  geom_histogram(
+    stat = "bin",
+    binwidth = 1,
+    aes(fill = ..count..),
+    show.legend = FALSE
+  ) +
+  mytheme +
+  scale_y_continuous(labels = scales::comma) +
+  labs(title = "In-Degree Distribution (similar product limit = 30)",
+       x = "Number of Similar Products",
+       y = "Number of Nodes") +
+  scale_fill_gradient(low = "grey", high = "black") +
+  xlim (-1, 30)
+```
+```{r}
+#observation - the new distribution is right skewed, compared the the previous distribution which was left skewed
+```
+
+```{r}
+ggplot(net_indeg, aes(x = net_indeg$`in degree`)) +
+  geom_histogram(
+    stat = "bin",
+    binwidth = 1,
+    aes(fill = ..count..),
+    show.legend = FALSE
+  ) +
+  mytheme +
+  scale_y_continuous(labels = scales::comma) +
+  labs(title = "In-Degree Distribution",
+       x = "Number of Similar Products",
+       y = "Number of Nodes") +
+  scale_fill_gradient(low = "grey", high = "black")
+```
+
+```{r}
+#Transform the x-axis of the previous graph to log scale, to get a better understanding of the distribution. Note here that you should have some products with 0 inbound links. This means that using the log of the x-axis will fail since log(0) will not be valid. Due to this, you should replace 0 with 0.1. Comment on what you observe.
+```
+
+
+```{r}
+# Replace 0 with 0.1
+net_indeg_log <- as.data.frame(net_indeg)
+net_indeg_log[net_indeg_log == 0] <- 0.1
+```
+
+```{r}
+# plot graph   
+ggplot(net_indeg_log, aes(x = net_indeg_log$`in degree`)) +
+  geom_histogram(
+    stat = "bin",
+    binwidth = 1,
+    aes(fill = ..count..),
+    show.legend = FALSE
+  ) +
+  mytheme +
+  scale_x_log10() +
+  scale_y_continuous(labels = scales::comma) +
+  labs(title = "In-Degree Distribution Log Transform of similar products",
+       x = "Log (Number of Similar Products)",
+       y = "Number of Nodes") +
+  scale_fill_gradient(low = "grey", high = "black")
+```
+
+```{r}
+#comment on what you observe - after log transforming the distribtuion looks very different, it is not heavily right skewed compared to the previous distribution
+```
+
+```{r}
+#Compute the average number of inbound co-purchase links, the standard deviation, and the maximum. Comment on the result.
+```
+
+```{r}
+paste("The Average number of inbound co-purchase links is:",
+      round(mean(net_indeg$`in degree`), 1))
+
+paste("The Standard deviation of inbound co-purchase links is:",
+      round(sd(net_indeg$`in degree`), 1))
+
+paste("The maximum of inbound co-purchase links is:", max(net_indeg$`in degree`))
+```
+
+```{r}
+#Report the names of the 10 products with the most inbound co-purchase links.
+```
+
+```{r}
+# read product names as a table from.txt file 
+data_title <- read.csv(file = "id_to_titles.txt",  sep = "")
+
+# rename columns 
+names(data_title) = c("product", "name")
+
+# join in-degree data frame with Title 
+df_top10_full <- net_indeg %>%
+  inner_join(data_title, by = c("from" = "product"))
+
+# Create Data frame with top 10 
+df_top10 <-
+   as.data.frame(head(df_top10_full[order(df_top10_full$`in degree`, decreasing = T),],n=10))
+```
+
+```{r}
+#Report the names of the 10 products with the most inbound co-purchase links.
+paste(df_top10$name)
+```
